@@ -34,9 +34,52 @@ def get_user(db, username):
 
 # Function to authenticate user
 def authenticate_user(fake_db, username: str, password: str):
-    user = get_user()
+    user = get_user(fake_db, username)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
         return False
+    return user
+
+# Function to create access token
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode.update({'exp': expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# Function to get current user based on token
+async def get_current_user(token: Annotated[str, Depends(oauth_scheme)]):
+    # Define an HTTP Exception for credential validation failure
+    credentail_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+    try:
+        # Decode the token
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Extract username from the payload
+        username: str | None = payload.get('sub')
+        # Raise exception if username is not found
+        if username is None:
+            raise credentail_exception
+        # Create TokenData object with the extracted username
+        token_data = TokenData(username=username)
+    except JWTError:
+        # Raise exception if JWT decoding fails
+        raise credentail_exception
+    # Raise exception if username is None
+    if token_data.username is None:
+        raise credentail_exception
+    # Retrieve user from the fake database using the extracted username
+    user = get_user(fake_users_db, username=token_data.username)
+    # Raise exception if user is not found
+    if user is None:
+        raise credentail_exception
+    # Return the user if authentication is successful
     return user
